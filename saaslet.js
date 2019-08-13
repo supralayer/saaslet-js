@@ -232,15 +232,16 @@
         /**
          * @constructor
          * @param {String} appPublishableKey a public app key. You can find yours after creating an app on the Saaslet dashboard
+         * @param {String} apiUrl url for the endpoint that proxies to the saaslet API
          * @public
          */
-        constructor( appPublishableKey ) {
+        constructor( appPublishableKey, apiUrl ) {
             super();
             this.appPublishableKey = appPublishableKey;
             this.activeWidgets = {};
             this.widgetCount = 0;
             this.baseUrl = 'https://saaslet.com/widgets/';
-            this.apiUrl = 'https://api.saaslet.com/';
+            this.apiUrl = apiUrl || 'https://api.saaslet.com/';
             this.user = new User( this.apiUrl, this.appPublishableKey, this );
             window.addEventListener( 'message', this._onWidgetMessage.bind( this ) );
         }
