@@ -2,12 +2,32 @@
 
     /**
      * Event Emitter
+     * 
+     * Custom event emitter implementation. Supports a separate context parameter
+     * and ordering of listeners
+     * 
+     * @class EventEmitter
+     * @private
      */
     class EventEmitter{
+
+        /**
+         * @constructor
+         */
         constructor() {
             this.listener = {};
         }
     
+        /**
+         * Binds a callback function to an event
+         * 
+         * @param {String} eventName Name of the event to listen to
+         * @param {Function} fn The function that will be invoked whenever the event occurs
+         * @param {Object} [context] Optional context argument, usually this 
+         * @param {Number} [order] Optional order the listener should be triggered in
+         * 
+         * @returns {undefined}
+         */
         on( eventName, fn, context, order ) {
             if( !this.listener[ eventName ] ) {
                 this.listener[ eventName ] = [];
@@ -25,6 +45,15 @@
             });
         }
     
+        /**
+         * Unbinds a previously registered callback function from an event
+         * 
+         * @param {String} eventName previously bound name of the event
+         * @param {Function} fn previously bound callback
+         * @param {Object} context a context - if previously registered
+         * 
+         * @returns {undefined}
+         */
         off( eventName, fn, context ) {
             if( !this.listener[ eventName ] ) {
                 return;
@@ -46,6 +75,14 @@
             }
         }
     
+        /**
+         * Invokes event listeners for eventName
+         * 
+         * @param {String} eventName
+         * @param {Mixed} arguments - any number of arguments that will be passed to the listeners
+         * 
+         * @returns {undefined}
+         */
         emit( eventName ) {
             if( !this.listener[ eventName ] ) {
                 return;
@@ -67,12 +104,20 @@
             }
         }
     
+        /**
+         * Returns an array of previously registered callback functions for a given event
+         * 
+         * @param {String} eventName 
+         * 
+         * @returns {Array} listeners
+         */
         hasListeners( eventName ) {
             return this.listener[ eventName ] && this.listener[ eventName ].length > 0;
         }
     }
     /**
      * @class Widget
+     * @public
      * 
      * Represents a single Saaslet instance within a user's app, e.g. a login/signup form
      * or a payment details form.
@@ -187,6 +232,7 @@
         /**
          * @constructor
          * @param {String} appPublishableKey a public app key. You can find yours after creating an app on the Saaslet dashboard
+         * @public
          */
         constructor( appPublishableKey ) {
             super();
@@ -208,6 +254,7 @@
          * @param {String|Element} elementOrSelector A DOM selector string or a DOM element the widget will be mounted into
          * @param {Object} [widgetConfig] an optional configuration object that overrides part of the default configuration for this widget
          * @param {String} [widgetCss] an optional CSS String that will be injected into the widget
+         * @public
          * 
          * @returns {Promise} a promise that will resolve with the widget once its fully loaded
          */
@@ -236,6 +283,14 @@
             return promise;
         }
 
+        /**
+         * Returns a dom element for a given input
+         * 
+         * @param {String|DomElement} elementOrSelector 
+         * @private
+         * 
+         * @returns {DomElement}
+         */
         _resolveElement( elementOrSelector ) {
             if( typeof elementOrSelector === 'string' ) {
                 elementOrSelector = document.querySelector( elementOrSelector );
@@ -248,10 +303,28 @@
             return elementOrSelector;
         }
 
+        /**
+         * Removes a previously registered widget from the internal registry. This will be internally
+         * called by the widget upon removal. The enduser is expected to remove a widget by calling .destroy()
+         * on the widget instance
+         * 
+         * @param {String} id
+         * @private
+         * 
+         * @returns {undefined}
+         */
         _removeWidget( id ) {
             delete this.activeWidgets[ id ];
         }
 
+        /**
+         * Callback for postMessage events emitted by the widgets
+         * 
+         * @param {PostMessage} msg
+         * @private
+         * 
+         * @returns {undefined} 
+         */
         _onWidgetMessage( msg ) {
             if( msg.data.source !== 'saaslet-widget' ) {
                 return;
@@ -262,6 +335,16 @@
             }
         }
 
+        /**
+         * Sends data via postMessage to a widget with the given id
+         * 
+         * @param {String} widgetId 
+         * @param {String} action 
+         * @param {Mixed} data 
+         * @private
+         * 
+         * @returns {undefined} 
+         */
         _sendMessageToWidget( widgetId, action, data ) {
             this.activeWidgets[ widgetId ].contentWindow.postMessage({
                 source: 'saaslet-parent',
@@ -271,13 +354,35 @@
         }
     }
 
+    /**
+     * Namespace for user related API interactions. Accessible via saaslet.user
+     * 
+     * @class User
+     * @public
+     */
     class User{
+
+        /**
+         * @param {String} apiUrl 
+         * @param {String} appPublishableKey 
+         * @param {Saaslet} parent
+         * @constructor
+         * @private
+         */
         constructor( apiUrl, appPublishableKey, parent ) {
             this.apiUrl = apiUrl;
             this.appPublishableKey = appPublishableKey;
             this.parent = parent;
         }
 
+        /**
+         * Creates a new user account for the given email
+         * 
+         * @param {String} email 
+         * @param {String} password 
+         * 
+         * @returns {Promise} userId
+         */
         signup( email, password ) {
             const data = { 
                 email: email,
@@ -291,6 +396,14 @@
             });
         }
 
+        /**
+         * Creates a session for a given user
+         * 
+         * @param {String} email 
+         * @param {String} password 
+         * 
+         * @returns {Promise} status
+         */
         login( email, password ) {
             const data = { 
                 email: email,
@@ -304,6 +417,11 @@
             });
         }
 
+        /**
+         * Terminates a session for a given user
+         * 
+         * @returns {Promise} status
+         */
         logout() {
             return post( this.apiUrl + 'users/logout', {}, d => {
                 this.parent.emit( 'logout' );
@@ -311,22 +429,48 @@
             });
         }
 
+        /**
+         * Sets a user specific setting or property
+         * 
+         * @param {String} key 
+         * @param {Mixed} value a serializable value
+         * 
+         * @returns {Promise} status
+         */
         set( key, value ) {
             return post( this.apiUrl + 'users/data', { data: { [ key ]: value } } );
         }
 
+        /**
+         * Returns a previously set user setting or property
+         * 
+         * @param {String} key 
+         * 
+         * @returns {Promise} value
+         */
         get( key ) {
             return get( this.apiUrl + 'users/data', d => {
                 return d.data.user.data[ key ];
             })
         }
 
+        /**
+         * Returns a key-value map of all current usersettings
+         * 
+         * @returns {Promise} UserSettings
+         */
         getAll() {
             return get( this.apiUrl + 'users/data', d => {
                 return d.data.user.data;
             })
         }
 
+        /**
+         * A simple way to check whether there's currently an active session. Returns
+         * a promuse that resolves to either true or false without throwing an error.
+         * 
+         * @returns {Promise} isLoggedIn
+         */
         isLoggedIn() {
             return new Promise(( resolve, reject ) => {
                 get( this.apiUrl + 'users/data').then(() => {
@@ -338,6 +482,11 @@
             }); 
         }
 
+        /**
+         * Returns information about the currently logged in user
+         * 
+         * @returns {Promise} userInfo
+         */
         getInfo() {
             return get( this.apiUrl + 'users/data', d => {
                 return {
@@ -348,30 +497,61 @@
             })
         }
 
+        /**
+         * Change the email for the currently logged in user. Requires password confirmation
+         * 
+         * @param {String} email 
+         * @param {String} password 
+         * 
+         * @returns {Promise} status
+         */
         changeEmail( email, password ) {
             return post( this.apiUrl + 'users/email/change', { email: email, password: password } );
         }
 
+        /**
+         * Changes the password for the currently logged in user
+         * 
+         * @param {String} oldPassword 
+         * @param {String} newPassword 
+         * 
+         * @returns {Promise} status
+         */
         changePassword( oldPassword, newPassword ) {
             return post( this.apiUrl + 'users/password/change', { oldPassword: oldPassword, newPassword: newPassword } );
         }
     }
 
-    class Plan{
-        constructor( apiUrl ) {
-            this.apiUrl = apiUrl;
-        }
-
-
-    }
+    /**
+     * Execute a HTTP GET request
+     * 
+     * @param {String} url 
+     * @param {Function} [transformFn] optional function that transforms the return value
+     * 
+     * @returns {Promise} responseData
+     */
     function get( url, transformFn ) {
         return sendRequest( url, null, transformFn );
     }
 
+    /**
+     * Execute a HTTP POST request
+     * 
+     * @param {String} url
+     * @param {Mixed} data
+     * @param {Function} [transformFn] optional function that transforms the return value
+     * 
+     * @returns {Promise} responseData
+     */
     function post( url, data, transformFn ) {
         return sendRequest( url, JSON.stringify( data ), transformFn );
     }
 
+    /**
+     * Helper function that returns a promise that can be resolved/rejected from the outside
+     * 
+     * @returns {Promise}
+     */
     function getPromise() {
         var doResolve, doReject;
         var promise = new Promise(function(resolve, reject) {
@@ -385,7 +565,13 @@
         return promise;
     }
     
-
+    /**
+     * Sends a XML HTTP request
+     * 
+     * @param {String} url 
+     * @param {String} [postData] optional data, only for post requests
+     * @param {Function} [transformFn] an optional transform function
+     */
     function sendRequest( url, postData, transformFn ) {
         const req = createXMLHTTPObject();
         const promise = getPromise();
@@ -456,7 +642,4 @@
     else {
         window.Saaslet = Saaslet;
     }
-
-    
-    
 })();
