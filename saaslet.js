@@ -1,6 +1,77 @@
 (function(){
 
     /**
+     * Event Emitter
+     */
+    class EventEmitter{
+        constructor() {
+            this.listener = {};
+        }
+    
+        on( eventName, fn, context, order ) {
+            if( !this.listener[ eventName ] ) {
+                this.listener[ eventName ] = [];
+            }
+    
+            this.listener[ eventName ].push({
+                eventName: eventName,
+                fn,
+                context: context,
+                order: order
+            });
+    
+            this.listener[ eventName ].sort((a,b) => {
+                return a.order > b.order ? 1 : -1;
+            });
+        }
+    
+        off( eventName, fn, context ) {
+            if( !this.listener[ eventName ] ) {
+                return;
+            }
+    
+            var i = this.listener[ eventName ].length;
+    
+            while( i-- ) {
+                if( 
+                    this.listener[ eventName ][ i ].fn === fn &&
+                    this.listener[ eventName ][ i ].context === context
+                ) {
+                    this.listener[ eventName ].splice( i, 1 );
+                }
+            }
+    
+            if( this.listener[ eventName ].length === 0 ) {
+                delete this.listener[ eventName ];
+            }
+        }
+    
+        emit( eventName ) {
+            if( !this.listener[ eventName ] ) {
+                return;
+            }
+    
+            const args = Array.prototype.slice.call( arguments, 1 );
+    
+    
+            var last = null;
+            var i = 0;
+            while( this.listener[ eventName ] && this.listener[ eventName ][ i ] ) {
+                last = this.listener[ eventName ][ i ];
+                if( this.listener[ eventName ][ i ].fn.apply( this.listener[ eventName ][ i ].context, args ) === false ) {
+                    return;   
+                }
+                if( this.listener[ eventName ] && this.listener[ eventName ][ i ] === last ) {
+                    i++;
+                }
+            }
+        }
+    
+        hasListeners( eventName ) {
+            return this.listener[ eventName ] && this.listener[ eventName ].length > 0;
+        }
+    }
+    /**
      * @class Widget
      * 
      * Represents a single Saaslet instance within a user's app, e.g. a login/signup form
@@ -24,10 +95,11 @@
             this.parentElement = parentElement;
             this.parent = parent;
             this.iFrame = document.createElement( 'iframe' );
+            this.iFrame.style.display = 'block';
             this.iFrame.frameBorder = 0;
             this.iFrame.allowTransparency = true;
             this.iFrame.src = iFrameUrl;
-            this.origin = iFrameUrl.match( /^.+\:\/\/[^\/]+\// )[ 0 ] ;
+            this.origin = this.iFrame.src.match( /^.+\:\/\/[^\/]+\// )[ 0 ] ;
             this.parentElement.appendChild( this.iFrame );
         }
 
@@ -78,7 +150,7 @@
          * @returns {undefined}
          */
         setSize( width, height ) {
-            this.iFrame.width = width;
+            this.iFrame.width = Math.max( this.parentElement.offsetWidth, width );
             this.iFrame.height = height;
         }
 
@@ -106,18 +178,24 @@
      * 
      * The main class exposed by this script. Acts as a factory for widgets 
      * and as a client to the Saaslet HTTP API.
+     * 
+     * @class Saaslet
+     * @extends EventEmitter
      */
-    class Saaslet{
+    class Saaslet extends EventEmitter{
 
         /**
          * @constructor
-         * @param {String} publicAppKey a public app key. You can find yours after creating an app on the Saaslet dashboard
+         * @param {String} appPublishableKey a public app key. You can find yours after creating an app on the Saaslet dashboard
          */
-        constructor( publicAppKey ) {
-            this.publicAppKey = publicAppKey;
+        constructor( appPublishableKey ) {
+            super();
+            this.appPublishableKey = appPublishableKey;
             this.activeWidgets = {};
             this.widgetCount = 0;
-            this.baseUrl = 'http://devapp.saaslet.com:8080'; //https://saaslet.com/widgets
+            this.baseUrl = 'http://devapp.saaslet.com:8080/';// 'https://saaslet.com/widgets/';
+            this.apiUrl = 'https://api.saaslet.com/';
+            this.user = new User( this.apiUrl, this.appPublishableKey, this );
             window.addEventListener( 'message', this._onWidgetMessage.bind( this ) );
         }
         
@@ -137,7 +215,7 @@
             const promise = getPromise();
             const element = this._resolveElement( elementOrSelector );
             const widgetId = 'wid_' + this.widgetCount;
-            const url = this.baseUrl + `?widgetId=${widgetId}&standalone=true&name=${widgetName}&appKey=${this.publicAppKey}`;
+            const url = this.baseUrl + `?widgetId=${widgetId}&standalone=true&name=${widgetName}&appKey=${this.appPublishableKey}`;
             const widget = new Widget( widgetId, widgetName, element, url, this );
 
             this.widgetCount++;
@@ -191,42 +269,107 @@
                 data: data
             }, this.baseUrl);
         }
-        
-        getUserProfile() {
+    }
 
+    class User{
+        constructor( apiUrl, appPublishableKey, parent ) {
+            this.apiUrl = apiUrl;
+            this.appPublishableKey = appPublishableKey;
+            this.parent = parent;
         }
 
-        login( loginData ) {
+        signup( email, password ) {
+            const data = { 
+                email: email,
+                password: password,
+                appPublishableKey: this.appPublishableKey
+            }
 
+            return post( this.apiUrl + 'users/signup', data, d => {
+                this.parent.emit( 'signup' );
+                return d.data.userId;
+            });
+        }
+
+        login( email, password ) {
+            const data = { 
+                email: email,
+                password: password,
+                appPublishableKey: this.appPublishableKey
+            }
+
+            return post( this.apiUrl + 'users/login', data, d => {
+                this.parent.emit( 'login' );
+                return d;
+            });
         }
 
         logout() {
-
+            return post( this.apiUrl + 'users/logout', {}, d => {
+                this.parent.emit( 'logout' );
+                return d;
+            });
         }
 
-        createUser() {
-
+        set( key, value ) {
+            return post( this.apiUrl + 'users/data', { data: { [ key ]: value } } );
         }
 
-        setUserSetting( key, value ) {
-
+        get( key ) {
+            return get( this.apiUrl + 'users/data', d => {
+                return d.data.user.data[ key ];
+            })
         }
 
-        getUserSetting( key ) {
-
+        getAll() {
+            return get( this.apiUrl + 'users/data', d => {
+                return d.data.user.data;
+            })
         }
 
-        deleteUserSetting( key ) {
+        isLoggedIn() {
+            return new Promise(( resolve, reject ) => {
+                get( this.apiUrl + 'users/data').then(() => {
+                    resolve( true );
+                })
+                .catch( e => {
+                    resolve( false );
+                });
+            }); 
+        }
 
+        getInfo() {
+            return get( this.apiUrl + 'users/data', d => {
+                return {
+                    id: d.data.user.id,
+                    email: d.data.user.email.address,
+                    subscriptions: d.data.user.subscriptions || []
+                }
+            })
+        }
+
+        changeEmail( email, password ) {
+            return post( this.apiUrl + 'users/email/change', { email: email, password: password } );
+        }
+
+        changePassword( oldPassword, newPassword ) {
+            return post( this.apiUrl + 'users/password/change', { oldPassword: oldPassword, newPassword: newPassword } );
         }
     }
 
-    function get( url, callback ) {
-        sendRequest( url, callback );
+    class Plan{
+        constructor( apiUrl ) {
+            this.apiUrl = apiUrl;
+        }
+
+
+    }
+    function get( url, transformFn ) {
+        return sendRequest( url, null, transformFn );
     }
 
-    function post( url, data, callback ) {
-        sendRequest( url, callback, JSON.stringify( data ) );
+    function post( url, data, transformFn ) {
+        return sendRequest( url, JSON.stringify( data ), transformFn );
     }
 
     function getPromise() {
@@ -243,25 +386,41 @@
     }
     
 
-    function sendRequest(url,callback,postData) {
-        var req = createXMLHTTPObject();
-        if (!req) return;
-        var method = (postData) ? "POST" : "GET";
+    function sendRequest( url, postData, transformFn ) {
+        const req = createXMLHTTPObject();
+        const promise = getPromise();
+        const method = postData ? "POST" : "GET";
 
+        if( !req ) {
+            promise.reject( 'Could not create XMLHTTPObject' );
+            return;
+        }
+        
         req.withCredentials = true;
-        req.open(method,url,true);
-
-        if (postData)
-            req.setRequestHeader('Content-type','application/json');
-            req.onreadystatechange = function () {
-                if (req.readyState != 4) return;
-                if (req.status != 200 && req.status != 304) {
-                    return;
-                }
-                callback(req);
+        req.open( method, url, true );
+        req.setRequestHeader('Content-type','application/json');
+        req.onreadystatechange = function () {
+            if( req.readyState !== 4 ) { 
+                return;
             }
+            var responseData = {
+                status: req.status,
+                data: JSON.parse( req.responseText )
+            };
+
+            if ( req.status != 200 && req.status != 304 ) {
+                promise.reject( responseData );
+            } else {
+                if( transformFn ) {
+                    responseData = transformFn( responseData );
+                }
+                promise.resolve( responseData );
+            }
+        }
         if (req.readyState == 4) return;
         req.send(postData);
+
+        return promise;
     }
     
     var XMLHttpFactories = [
@@ -297,4 +456,7 @@
     else {
         window.Saaslet = Saaslet;
     }
+
+    
+    
 })();
