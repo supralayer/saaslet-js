@@ -239,7 +239,7 @@
             this.appPublishableKey = appPublishableKey;
             this.activeWidgets = {};
             this.widgetCount = 0;
-            this.baseUrl = 'http://devapp.saaslet.com:8080/';// 'https://saaslet.com/widgets/';
+            this.baseUrl = 'https://saaslet.com/widgets/';
             this.apiUrl = 'https://api.saaslet.com/';
             this.user = new User( this.apiUrl, this.appPublishableKey, this );
             window.addEventListener( 'message', this._onWidgetMessage.bind( this ) );
